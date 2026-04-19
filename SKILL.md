@@ -55,147 +55,34 @@ src/components/forms/FormRow.variant-c.jsx   (new — distinct direction)
 
 ### Step 4 — Scaffold the picker
 
-Create two files under `src/_uipicker/` (underscore prefix signals it's scaffolding, not production code):
+Don't hand-author the picker. Fetch the canonical runtime from the skill repo so every install gets the same UI:
 
-**`src/_uipicker/UIPickerContext.jsx`** — React context that holds the selected variant, persisted to `localStorage`:
-
-```jsx
-import { createContext, useContext, useState, useCallback } from 'react';
-
-const UIPickerContext = createContext(null);
-
-export function UIPickerProvider({ children, storageKey = 'ui-picker', defaultVariant = 'a' }) {
-  const [selected, setSelectedState] = useState(() => {
-    if (typeof window === 'undefined') return defaultVariant;
-    return localStorage.getItem(storageKey) || defaultVariant;
-  });
-
-  const setSelected = useCallback((v) => {
-    setSelectedState(v);
-    try { localStorage.setItem(storageKey, v); } catch {}
-  }, [storageKey]);
-
-  return (
-    <UIPickerContext.Provider value={{ selected, setSelected }}>
-      {children}
-    </UIPickerContext.Provider>
-  );
-}
-
-export function useUIPicker() {
-  const ctx = useContext(UIPickerContext);
-  if (!ctx) throw new Error('useUIPicker must be used inside UIPickerProvider');
-  return ctx;
-}
+```bash
+mkdir -p src/_uipicker
+curl -fsSL https://raw.githubusercontent.com/23jmo/jmoui/main/runtime/ui-picker.js -o src/_uipicker/ui-picker.js
+curl -fsSL https://raw.githubusercontent.com/23jmo/jmoui/main/runtime/UIPickerContext.tsx -o src/_uipicker/UIPickerContext.tsx
+curl -fsSL https://raw.githubusercontent.com/23jmo/jmoui/main/runtime/UIPickerOverlay.tsx -o src/_uipicker/UIPickerOverlay.tsx
 ```
 
-**`src/_uipicker/UIPickerOverlay.jsx`** — fixed floating panel at the bottom center of the viewport. No anchoring logic, no ref tracking, no observers. Always visible in dev. Keyboard shortcuts: **Option/Alt + ←/→** to cycle variants, **Option/Alt + 1..9** to jump directly. Shortcuts are suppressed when the user is typing in an input/textarea/contenteditable so they don't hijack native word-jump behavior:
+What's in the runtime:
 
-```jsx
-import { useEffect } from 'react';
-import { useUIPicker } from './UIPickerContext.jsx';
+- **`ui-picker.js`** — framework-agnostic Web Component (`<ui-picker>`) that owns the picker's visuals, selection state, localStorage persistence, and keyboard shortcuts. Registered lazily (SSR-safe — the class declaration is gated behind a `typeof window` check so Next.js/Remix server renders don't touch `HTMLElement`). Shadow DOM scopes the styles so nothing in the host app leaks in or out.
+- **`UIPickerContext`** — React context holding the selected variant id plus the `storageKey`. Mirrors the Web Component's localStorage so React subtrees (the dispatcher shim) can re-render when the user cycles. Marked `'use client'` — harmless in Vite, required in Next.js App Router.
+- **`UIPickerOverlay`** — thin React wrapper that renders `<ui-picker>`, forwards `variants` / `label` / `storageKey` as data attributes, listens for the `variant-change` CustomEvent, and pushes React state back onto the element imperatively. Dev-only — renders `null` when `process.env.NODE_ENV !== 'development'`, which both Vite and Next.js inject correctly.
 
-function isTypingContext(target) {
-  if (!target) return false;
-  const tag = target.tagName;
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
-  if (target.isContentEditable) return true;
-  return false;
-}
+If the target project is JavaScript (no TypeScript), rename the two `.tsx` files to `.jsx` and strip the inline type annotations (`type Variant`, `type Props`, parameter type tags). Leave `ui-picker.js` untouched — it's already framework-agnostic.
 
-export function UIPickerOverlay({ variants, label }) {
-  const { selected, setSelected } = useUIPicker();
-
-  useEffect(() => {
-    if (!import.meta.env.DEV) return;
-    const onKey = (e) => {
-      if (!e.altKey) return;
-      if (isTypingContext(e.target)) return;
-
-      const idx = variants.indexOf(selected);
-      if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        setSelected(variants[(idx + 1) % variants.length]);
-        return;
-      }
-      if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        setSelected(variants[(idx - 1 + variants.length) % variants.length]);
-        return;
-      }
-      if (/^[1-9]$/.test(e.key)) {
-        const n = parseInt(e.key, 10) - 1;
-        if (n < variants.length) {
-          e.preventDefault();
-          setSelected(variants[n]);
-        }
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [variants, selected, setSelected]);
-
-  if (!import.meta.env.DEV) return null;
-
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        bottom: 16,
-        left: '50%',
-        transform: 'translateX(-50%)',
-        zIndex: 99999,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        padding: '8px 14px',
-        background: 'rgba(17, 17, 17, 0.92)',
-        color: '#fff',
-        borderRadius: 999,
-        fontSize: 12,
-        fontFamily: 'system-ui, sans-serif',
-        boxShadow: '0 6px 20px rgba(0,0,0,0.35)',
-        backdropFilter: 'blur(8px)',
-        pointerEvents: 'auto',
-        userSelect: 'none',
-      }}
-    >
-      <span style={{ opacity: 0.6, letterSpacing: 0.3 }}>{label}</span>
-      {variants.map((v, i) => (
-        <button
-          key={v}
-          onClick={() => setSelected(v)}
-          title={`⌥${i + 1}`}
-          style={{
-            padding: '4px 12px',
-            borderRadius: 999,
-            border: selected === v ? '1px solid #818cf8' : '1px solid transparent',
-            cursor: 'pointer',
-            background: selected === v ? '#4f46e5' : 'rgba(255,255,255,0.08)',
-            color: '#fff',
-            fontWeight: selected === v ? 600 : 400,
-            textTransform: 'uppercase',
-            letterSpacing: 0.5,
-          }}
-        >
-          {v}
-        </button>
-      ))}
-      <span style={{ opacity: 0.4, fontSize: 10, marginLeft: 4 }}>⌥ ←/→</span>
-    </div>
-  );
-}
-```
+**Do not edit these files in the target project.** Treat them as vendored library code — tweaks should land in the skill repo so every install benefits.
 
 ### Step 5 — Rewrite the original as a dispatcher
 
 The original file (`FormRow.jsx`) becomes a thin shim that reads the selected variant from context and renders it. No refs, no effects, no overlay inside — the overlay is mounted globally at the app root (next step):
 
 ```jsx
-import { useUIPicker } from '../../_uipicker/UIPickerContext.jsx';
-import FormRowA from './FormRow.variant-a.jsx';
-import FormRowB from './FormRow.variant-b.jsx';
-import FormRowC from './FormRow.variant-c.jsx';
+import { useUIPicker } from '../../_uipicker/UIPickerContext';
+import FormRowA from './FormRow.variant-a';
+import FormRowB from './FormRow.variant-b';
+import FormRowC from './FormRow.variant-c';
 
 const VARIANTS = { a: FormRowA, b: FormRowB, c: FormRowC };
 
@@ -208,18 +95,27 @@ export default function FormRow(props) {
 
 Preserve the original file's named exports if it had any (e.g., `export const FormRowHeader = ...`). Re-export them from whichever variant the user is most likely to iterate them in, or from variant A by default. If the original was a named export rather than default, flip the export pattern accordingly.
 
-**Mount the provider AND the overlay at the app root.** Edit `src/main.jsx` (or the app's root file). The overlay lives next to the app tree — it doesn't wrap it — so it renders regardless of the current route, modal state, or whether the target component is even mounted:
+**Mount the provider and overlay at the app root.** Pass variants as `{ id, name }` pairs — the `name` is the short descriptive label (2–3 words) shown in the picker readout and jump menu:
 
 ```jsx
-import { UIPickerProvider } from './_uipicker/UIPickerContext.jsx';
-import { UIPickerOverlay } from './_uipicker/UIPickerOverlay.jsx';
+import { UIPickerProvider } from './_uipicker/UIPickerContext';
+import { UIPickerOverlay } from './_uipicker/UIPickerOverlay';
 
 // …inside the root render:
 <UIPickerProvider storageKey="ui-picker-FormRow">
   <App />
-  <UIPickerOverlay variants={['a', 'b', 'c']} label="FormRow" />
+  <UIPickerOverlay
+    label="FormRow"
+    variants={[
+      { id: 'a', name: 'Stacked compact' },
+      { id: 'b', name: 'Inline dense' },
+      { id: 'c', name: 'Floating label' },
+    ]}
+  />
 </UIPickerProvider>
 ```
+
+Pick names that describe the *direction* of each variant, not just "Variant A". They show up in the picker readout — good names make cycling through options feel like a conversation with yourself.
 
 The overlay is `position: fixed` at the bottom-center of the viewport with a high `z-index`, so it floats above everything — including modals, popovers, and fullscreen layouts. It persists across route changes because it's mounted outside the routed tree.
 
