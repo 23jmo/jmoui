@@ -37,7 +37,7 @@ If the component is rendered in **many places**, that's fine — the picker atta
 
 ### Step 3 — Create sibling variant files
 
-Copy the target component to N siblings alongside the original:
+Copy the target component to N siblings alongside the original. **Use the host project's file extension** — `.tsx` for TypeScript projects, `.jsx` otherwise. Examples below show `.jsx`; translate as needed.
 
 ```
 src/components/forms/FormRow.jsx             (will become the dispatcher)
@@ -55,13 +55,20 @@ src/components/forms/FormRow.variant-c.jsx   (new — distinct direction)
 
 ### Step 4 — Scaffold the picker
 
-Don't hand-author the picker. Fetch the canonical runtime from the skill repo so every install gets the same UI:
+Don't hand-author the picker. Fetch the canonical runtime from the skill repo so every install gets the same UI.
+
+**Pick the scaffold location before running `curl`:**
+
+- Vite / CRA / anything with `src/`: put it at `src/_uipicker/`.
+- Next.js App Router (default, no `src/`): put it at the **repo root** — e.g. `./_uipicker/` next to `app/` and `components/`. Do **not** let `mkdir -p src/_uipicker` create a phantom `src/` folder.
 
 ```bash
-mkdir -p src/_uipicker
-curl -fsSL https://raw.githubusercontent.com/23jmo/jmoui/main/runtime/ui-picker.js -o src/_uipicker/ui-picker.js
-curl -fsSL https://raw.githubusercontent.com/23jmo/jmoui/main/runtime/UIPickerContext.tsx -o src/_uipicker/UIPickerContext.tsx
-curl -fsSL https://raw.githubusercontent.com/23jmo/jmoui/main/runtime/UIPickerOverlay.tsx -o src/_uipicker/UIPickerOverlay.tsx
+# adjust SCAFFOLD_DIR to match your project layout (src/_uipicker or _uipicker)
+SCAFFOLD_DIR=src/_uipicker
+mkdir -p $SCAFFOLD_DIR
+curl -fsSL https://raw.githubusercontent.com/23jmo/jmoui/main/runtime/ui-picker.js -o $SCAFFOLD_DIR/ui-picker.js
+curl -fsSL https://raw.githubusercontent.com/23jmo/jmoui/main/runtime/UIPickerContext.tsx -o $SCAFFOLD_DIR/UIPickerContext.tsx
+curl -fsSL https://raw.githubusercontent.com/23jmo/jmoui/main/runtime/UIPickerOverlay.tsx -o $SCAFFOLD_DIR/UIPickerOverlay.tsx
 ```
 
 What's in the runtime:
@@ -79,7 +86,8 @@ If the target project is JavaScript (no TypeScript), rename the two `.tsx` files
 The original file (`FormRow.jsx`) becomes a thin shim that reads the selected variant from context and renders it. No refs, no effects, no overlay inside — the overlay is mounted globally at the app root (next step):
 
 ```jsx
-import { useUIPicker } from '../../_uipicker/UIPickerContext';
+'use client'; // required in Next.js App Router; harmless in Vite / CRA
+import { useUIPicker } from '../../_uipicker/UIPickerContext'; // adjust depth to match your component's location
 import FormRowA from './FormRow.variant-a';
 import FormRowB from './FormRow.variant-b';
 import FormRowC from './FormRow.variant-c';
@@ -101,7 +109,7 @@ Preserve the original file's named exports if it had any (e.g., `export const Fo
 import { UIPickerProvider } from './_uipicker/UIPickerContext';
 import { UIPickerOverlay } from './_uipicker/UIPickerOverlay';
 
-// …inside the root render:
+// …inside the root render (e.g. src/main.jsx for Vite):
 <UIPickerProvider storageKey="ui-picker-FormRow">
   <App />
   <UIPickerOverlay
@@ -116,6 +124,35 @@ import { UIPickerOverlay } from './_uipicker/UIPickerOverlay';
 ```
 
 Pick names that describe the *direction* of each variant, not just "Variant A". They show up in the picker readout — good names make cycling through options feel like a conversation with yourself.
+
+**Next.js App Router variant.** `app/layout.tsx` is a server component (uses `metadata`, `next/font`, etc.) — don't mark it `'use client'`. Instead, create a client-boundary wrapper next to the other runtime files and render it inside `<body>`:
+
+```tsx
+// _uipicker/UIPickerRoot.tsx
+'use client';
+import type { ReactNode } from 'react';
+import { UIPickerProvider } from './UIPickerContext';
+import { UIPickerOverlay } from './UIPickerOverlay';
+
+export function UIPickerRoot({ children }: { children: ReactNode }) {
+  return (
+    <UIPickerProvider storageKey="ui-picker-FormRow">
+      {children}
+      <UIPickerOverlay
+        label="FormRow"
+        variants={[
+          { id: 'a', name: 'Stacked compact' },
+          { id: 'b', name: 'Inline dense' },
+          { id: 'c', name: 'Floating label' },
+        ]}
+      />
+    </UIPickerProvider>
+  );
+}
+
+// app/layout.tsx — wrap {children} inside <body>
+// <body><UIPickerRoot>{children}</UIPickerRoot></body>
+```
 
 The overlay is `position: fixed` at the bottom-center of the viewport with a high `z-index`, so it floats above everything — including modals, popovers, and fullscreen layouts. It persists across route changes because it's mounted outside the routed tree.
 
@@ -143,12 +180,12 @@ If E: ask for a new direction and return to Step 3 (keep existing scaffolding, o
 
 Once the user picks (or the combination is written):
 
-1. **Overwrite the original file** with the winning variant's contents (or the new merged component). Remove the dispatcher shim, the `useUIPicker`/overlay imports, and the wrapper div.
-2. **Delete** all `*.variant-*.jsx` sibling files.
-3. **Remove** the `src/_uipicker/` directory.
-4. **Revert** the provider wrap in `main.jsx` (restore original structure).
+1. **Overwrite the original file** with the winning variant's contents (or the new merged component). Remove the dispatcher shim, the `useUIPicker`/overlay imports, and the `'use client'` directive if the original didn't have one.
+2. **Delete** all `*.variant-*.{jsx,tsx}` sibling files.
+3. **Remove** the scaffold directory (`src/_uipicker/` for Vite, `_uipicker/` for Next).
+4. **Revert** the provider wrap: Vite — restore `src/main.{jsx,tsx}`; Next — delete `UIPickerRoot.tsx` and unwrap `{children}` inside `app/layout.tsx`.
 5. **Clean up localStorage key** — tell the user they can run `localStorage.removeItem('ui-picker-...')` in devtools, or add a one-liner to the cleanup (e.g., inject a `<script>` that clears it once — but usually not worth it).
-6. Confirm all variant files and scaffolding are gone with `Glob` for `**/*.variant-*.*` and `**/UIPicker*.jsx`.
+6. Confirm all variant files and scaffolding are gone with `Glob` for `**/*.variant-*.*` and `**/UIPicker*.{jsx,tsx}`.
 
 Report back: "Applied variant X. Cleaned up scaffolding. Diff: [list of files changed]."
 
