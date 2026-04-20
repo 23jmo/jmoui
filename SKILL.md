@@ -65,10 +65,12 @@ Don't hand-author the picker. Fetch the canonical runtime from the skill repo so
 ```bash
 # adjust SCAFFOLD_DIR to match your project layout (src/_uipicker or _uipicker)
 SCAFFOLD_DIR=src/_uipicker
+# pick EXT=tsx for TypeScript projects, jsx for JavaScript
+EXT=tsx
 mkdir -p $SCAFFOLD_DIR
 curl -fsSL https://raw.githubusercontent.com/23jmo/jmoui/main/runtime/ui-picker.js -o $SCAFFOLD_DIR/ui-picker.js
-curl -fsSL https://raw.githubusercontent.com/23jmo/jmoui/main/runtime/UIPickerContext.tsx -o $SCAFFOLD_DIR/UIPickerContext.tsx
-curl -fsSL https://raw.githubusercontent.com/23jmo/jmoui/main/runtime/UIPickerOverlay.tsx -o $SCAFFOLD_DIR/UIPickerOverlay.tsx
+curl -fsSL https://raw.githubusercontent.com/23jmo/jmoui/main/runtime/UIPickerContext.$EXT -o $SCAFFOLD_DIR/UIPickerContext.$EXT
+curl -fsSL https://raw.githubusercontent.com/23jmo/jmoui/main/runtime/UIPickerOverlay.$EXT -o $SCAFFOLD_DIR/UIPickerOverlay.$EXT
 ```
 
 What's in the runtime:
@@ -77,9 +79,7 @@ What's in the runtime:
 - **`UIPickerContext`** — React context holding the selected variant id plus the `storageKey`. Mirrors the Web Component's localStorage so React subtrees (the dispatcher shim) can re-render when the user cycles. Marked `'use client'` — harmless in Vite, required in Next.js App Router.
 - **`UIPickerOverlay`** — thin React wrapper that renders `<ui-picker>`, forwards `variants` / `label` / `storageKey` as data attributes, listens for the `variant-change` CustomEvent, and pushes React state back onto the element imperatively. Dev-only — renders `null` when `process.env.NODE_ENV !== 'development'`, which both Vite and Next.js inject correctly.
 
-If the target project is JavaScript (no TypeScript), rename the two `.tsx` files to `.jsx` and strip the inline type annotations (`type Variant`, `type Props`, parameter type tags). Leave `ui-picker.js` untouched — it's already framework-agnostic.
-
-**Do not edit these files in the target project.** Treat them as vendored library code — tweaks should land in the skill repo so every install benefits.
+Both `.tsx` and `.jsx` versions are pre-built in the skill repo — pick the matching extension for the target project. **Never hand-edit these files** or translate types yourself: treat them as vendored library code so every install ships the same UI. Tweaks belong in the skill repo.
 
 ### Step 5 — Rewrite the original as a dispatcher
 
